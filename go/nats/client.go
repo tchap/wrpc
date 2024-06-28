@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 
 	"github.com/nats-io/nats.go"
 	wrpc "github.com/wrpc/wrpc/go"
@@ -82,6 +83,25 @@ func subscribe(conn *nats.Conn, prefix string, f func(context.Context, []byte), 
 	})
 }
 
+func publishAll(nc *nats.Conn, subject string, p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+
+	total := len(p)
+	n := nc.MaxPayload()
+	for len(p) > 0 {
+		n = min(n, int64(len(p)))
+
+		var chunk []byte
+		chunk, p = p[:n], p[n:]
+		if err := nc.Publish(subject, chunk); err != nil {
+			return 0, fmt.Errorf("failed to send payload chunk: %w", err)
+		}
+	}
+	return total, nil
+}
+
 func transmitError(nc *nats.Conn, subject string, err error) error {
 	var buf bytes.Buffer
 	if err := wrpc.WriteString(fmt.Sprintf("%s", err), &buf); err != nil {
@@ -112,6 +132,12 @@ func transmitError(nc *nats.Conn, subject string, err error) error {
 	return nil
 }
 
+const (
+	handshakeUnstarted = iota
+	handshakePending
+	handshakeDone
+)
+
 type Client struct {
 	conn   *nats.Conn
 	prefix string
@@ -122,58 +148,108 @@ func NewClient(conn *nats.Conn, prefix string) *Client {
 }
 
 type paramWriter struct {
-	ctx  context.Context
-	nc   *nats.Conn
-	rx   string
-	tx   string
-	init bool
+	ctx context.Context
+	nc  *nats.Conn
+	rx  string
+	tx  string
+
+	handshakeStatus atomic.Int32
+	handshakeDoneCh chan struct{}
+
+	children []*indexWriter
+	mu       sync.Mutex
+}
+
+func newParamWriter(ctx context.Context, nc *nats.Conn, rx, tx string) *paramWriter {
+	return &paramWriter{
+		ctx:             ctx,
+		nc:              nc,
+		rx:              rx,
+		tx:              tx,
+		handshakeDoneCh: make(chan struct{}),
+	}
+}
+
+func (w *paramWriter) isInitialized() bool {
+	return w.handshakeStatus.Load() == handshakeDone
+}
+
+func (w *paramWriter) handshakeFinished(tx string) {
+	// The whole state update must happen with the mutex locked,
+	// otherwise things like the Index method can break.
+	w.mu.Lock()
+	w.tx = tx
+	close(w.handshakeDoneCh)
+	w.handshakeStatus.Store(handshakeDone)
+	children := w.children
+	w.mu.Unlock()
+
+	for _, child := range children {
+		child.setTransmissionPrefix(tx)
+	}
 }
 
 func (w *paramWriter) publish(p []byte) (int, error) {
+	// Just publish in case the writer is already initialized.
+	if w.isInitialized() {
+		return publishAll(w.nc, w.tx, p)
+	}
+
+	// Try to mark handshake as pending, otherwise wait for it to be finished.
+	if !w.handshakeStatus.CompareAndSwap(handshakeUnstarted, handshakePending) {
+		select {
+		case <-w.handshakeDoneCh:
+			return publishAll(w.nc, w.tx, p)
+
+		case <-w.ctx.Done():
+			return 0, w.ctx.Err()
+		}
+	}
+
+	// Do the handshake.
+	// In case we do not get to handshakeDone, reset to handshakeUnstarted.
+	defer w.handshakeStatus.CompareAndSwap(handshakePending, handshakeUnstarted)
+
 	maxPayload := w.nc.MaxPayload()
 	pn := len(p)
-	if !w.init {
-		header, hasHeader := HeaderFromContext(w.ctx)
-		m := nats.NewMsg(w.tx)
-		m.Reply = w.rx
-		if hasHeader {
-			m.Header = header
-		}
-		mSize := int64(m.Size())
-		if mSize > maxPayload {
-			return 0, fmt.Errorf("message size %d is larger than maximum allowed payload size %d", mSize, maxPayload)
-		}
-		maxPayload -= mSize
-		maxPayload = min(maxPayload, int64(len(p)))
-		m.Data, p = p[:maxPayload], p[maxPayload:]
 
-		sub, err := w.nc.SubscribeSync(w.rx)
-		if err != nil {
-			return 0, fmt.Errorf("failed to subscribe on Rx subject: %w", err)
-		}
-		slog.DebugContext(w.ctx, "publishing handshake", "rx", m.Reply)
-		if err := w.nc.PublishMsg(m); err != nil {
-			return 0, fmt.Errorf("failed to send initial payload chunk: %w", err)
-		}
-		n := len(m.Data)
-
-		m, err = sub.NextMsgWithContext(w.ctx)
-		if err != nil {
-			return n, fmt.Errorf("failed to receive handshake: %w", err)
-		}
-		if m.Reply == "" {
-			return n, errors.New("peer did not specify a reply subject")
-		}
-		w.tx = paramSubject(m.Reply)
-		w.init = true
+	header, hasHeader := HeaderFromContext(w.ctx)
+	m := nats.NewMsg(w.tx)
+	m.Reply = w.rx
+	if hasHeader {
+		m.Header = header
 	}
-	buf := p
-	for len(buf) > 0 {
-		maxPayload = min(maxPayload, int64(len(buf)))
-		p, buf = buf[:maxPayload], buf[maxPayload:]
-		if err := w.nc.Publish(w.tx, p); err != nil {
-			return 0, fmt.Errorf("failed to send payload chunk: %w", err)
-		}
+	mSize := int64(m.Size())
+	if mSize > maxPayload {
+		return 0, fmt.Errorf("message size %d is larger than maximum allowed payload size %d", mSize, maxPayload)
+	}
+	maxPayload -= mSize
+	maxPayload = min(maxPayload, int64(len(p)))
+	m.Data, p = p[:maxPayload], p[maxPayload:]
+
+	sub, err := w.nc.SubscribeSync(w.rx)
+	if err != nil {
+		return 0, fmt.Errorf("failed to subscribe on Rx subject: %w", err)
+	}
+	slog.DebugContext(w.ctx, "publishing handshake", "rx", m.Reply)
+	if err := w.nc.PublishMsg(m); err != nil {
+		return 0, fmt.Errorf("failed to send initial payload chunk: %w", err)
+	}
+	n := len(m.Data)
+
+	m, err = sub.NextMsgWithContext(w.ctx)
+	if err != nil {
+		return n, fmt.Errorf("failed to receive handshake: %w", err)
+	}
+	if m.Reply == "" {
+		return n, errors.New("peer did not specify a reply subject")
+	}
+
+	w.handshakeFinished(paramSubject(m.Reply))
+
+	// Publish what remains.
+	if _, err := publishAll(w.nc, w.tx, p); err != nil {
+		return 0, err
 	}
 	return pn, nil
 }
@@ -184,14 +260,94 @@ func (w *paramWriter) Write(p []byte) (int, error) {
 
 func (w *paramWriter) WriteByte(b byte) error {
 	_, err := w.publish([]byte{b})
-	if err != nil {
-		return err
-	}
-	return nil
+	return err
 }
 
 func (w *paramWriter) Index(path ...uint32) (wrpc.IndexWriter, error) {
-	return nil, errors.New("indexing not supported yet")
+	child := newIndexWriter(w.ctx, w.nc, path)
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.isInitialized() {
+		child.setTransmissionPrefix(w.tx)
+	} else {
+		w.children = append(w.children, child)
+	}
+	return child, nil
+}
+
+type indexWriter struct {
+	ctx  context.Context
+	nc   *nats.Conn
+	path []uint32
+
+	tx   string
+	txCh chan struct{}
+
+	children []*indexWriter
+	mu       sync.Mutex
+}
+
+func newIndexWriter(ctx context.Context, nc *nats.Conn, path []uint32) *indexWriter {
+	return &indexWriter{
+		ctx:  ctx,
+		nc:   nc,
+		path: path,
+		txCh: make(chan struct{}),
+	}
+}
+
+func (w *indexWriter) setTransmissionPrefix(prefix string) {
+	tx := indexPath(prefix, w.path...)
+
+	w.mu.Lock()
+	if w.tx != "" {
+		w.mu.Unlock()
+		return
+	}
+
+	w.tx = tx
+	close(w.txCh)
+	children := w.children
+	w.mu.Unlock()
+
+	for _, child := range children {
+		child.setTransmissionPrefix(tx)
+	}
+}
+
+func (w *indexWriter) publish(p []byte) (int, error) {
+	select {
+	case <-w.txCh:
+		return publishAll(w.nc, w.tx, p)
+
+	case <-w.ctx.Done():
+		return 0, w.ctx.Err()
+	}
+}
+
+func (w *indexWriter) Write(p []byte) (int, error) {
+	return w.publish(p)
+}
+
+func (w *indexWriter) WriteByte(b byte) error {
+	_, err := w.publish([]byte{b})
+	return err
+}
+
+func (w *indexWriter) Index(path ...uint32) (wrpc.IndexWriter, error) {
+	child := newIndexWriter(w.ctx, w.nc, path)
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.tx != "" {
+		child.setTransmissionPrefix(w.tx)
+	} else {
+		w.children = append(w.children, child)
+	}
+	return child, nil
 }
 
 type resultWriter struct {
@@ -448,12 +604,12 @@ func (c *Client) Invoke(ctx context.Context, instance string, name string, f fun
 	}
 
 	slog.Debug("calling client handler")
-	w := &paramWriter{
-		ctx: ctx,
-		nc:  c.conn,
-		rx:  rx,
-		tx:  invocationSubject(c.prefix, instance, name),
-	}
+	w := newParamWriter(
+		ctx,
+		c.conn,
+		rx,
+		invocationSubject(c.prefix, instance, name),
+	)
 	if err = f(w, &streamReader{
 		subReader: &subReader{
 			ctx:    ctx,
@@ -462,7 +618,7 @@ func (c *Client) Invoke(ctx context.Context, instance string, name string, f fun
 		},
 		err:  errSub,
 		nest: nest,
-	}); err != nil && w.init {
+	}); err != nil && w.isInitialized() {
 		if err := transmitError(c.conn, errorSubject(w.tx), err); err != nil {
 			slog.Warn("failed to send error to server", "err", err)
 		}

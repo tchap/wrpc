@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
+	"github.com/stretchr/testify/assert"
+	wrpc "github.com/wrpc/wrpc/go"
 	wrpcnats "github.com/wrpc/wrpc/go/nats"
 	integration "github.com/wrpc/wrpc/tests/go"
 	"github.com/wrpc/wrpc/tests/go/bindings/async_client/wrpc_test/integration/async"
@@ -123,6 +125,17 @@ func TestAsync(t *testing.T) {
 			return
 		}
 	}
+
+	t.Run("CountWords", func(t *testing.T) {
+		check := assert.New(t)
+
+		slog.DebugContext(ctx, "calling `wrpc-test:integration/async.count-words`")
+		r, shutdown, err := async.CountWords(
+			ctx, client, wrpc.NewCompleteReceiver([]string{"what", "have", "you", "done"}))
+		check.NoError(err)
+		check.NoError(shutdown())
+		check.Equal(uint64(4), r)
+	})
 
 	if err = stop(); err != nil {
 		t.Errorf("failed to stop serving `async-server` world: %s", err)

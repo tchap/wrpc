@@ -22,3 +22,11 @@ func (AsyncHandler) WithStreams(ctx context.Context, complete bool) (wrpc.ReadCo
 		return wrpc.NewPendingByteReader(buf), wrpc.NewPendingReceiver(str), nil
 	}
 }
+
+func (AsyncHandler) CountWords(ctx__ context.Context, words wrpc.ReceiveCompleter[[]string]) (uint64, error) {
+	items, err := words.Receive()
+	if err != nil {
+		return 0, err
+	}
+	return uint64(len(items)), nil
+}
