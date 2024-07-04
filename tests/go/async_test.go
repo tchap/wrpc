@@ -12,6 +12,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/stretchr/testify/assert"
+	wrpc "github.com/wrpc/wrpc/go"
 	wrpcnats "github.com/wrpc/wrpc/go/nats"
 	integration "github.com/wrpc/wrpc/tests/go"
 	"github.com/wrpc/wrpc/tests/go/bindings/async_client/wrpc_test/integration/async"
@@ -128,16 +129,8 @@ func TestAsync(t *testing.T) {
 	t.Run("CountWords", func(t *testing.T) {
 		check := assert.New(t)
 
-		recv := MockReceiver[[]string]{
-			ZeroChunk: nil,
-			Chunks: [][]string{
-				{"what", "have"},
-				{"you", "done"},
-			},
-		}
-
 		slog.DebugContext(ctx, "calling `wrpc-test:integration/async.count-words`")
-		r, shutdown, err := async.CountWords(ctx, client, &recv)
+		r, shutdown, err := async.CountWords(ctx, client, wrpc.NewCompleteReceiver([]string{"1", "2", "3", "4"}))
 		check.NoError(err)
 		check.NoError(shutdown())
 		check.Equal(uint64(4), r)
