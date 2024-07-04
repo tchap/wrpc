@@ -24,9 +24,16 @@ func (AsyncHandler) WithStreams(ctx context.Context, complete bool) (wrpc.ReadCo
 }
 
 func (AsyncHandler) CountWords(ctx__ context.Context, words wrpc.ReceiveCompleter[[]string]) (uint64, error) {
-	items, err := words.Receive()
-	if err != nil {
-		return 0, err
+	var n int
+	for {
+		next, err := words.Receive()
+		if err != nil {
+			return 0, err
+		}
+
+		n += len(next)
+		if words.IsComplete() {
+			return uint64(n), nil
+		}
 	}
-	return uint64(len(items)), nil
 }

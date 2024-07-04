@@ -175,6 +175,8 @@ func (w *paramWriter) isInitialized() bool {
 }
 
 func (w *paramWriter) handshakeFinished(tx string) {
+	slog.DebugContext(w.ctx, "handshake finished", "tx", tx)
+
 	// The whole state update must happen with the mutex locked,
 	// otherwise things like the Index method can break.
 	w.mu.Lock()

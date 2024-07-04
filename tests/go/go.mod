@@ -9,6 +9,8 @@ require (
 	github.com/wrpc/wrpc/go v0.0.0-unpublished
 )
 
+require github.com/stretchr/objx v0.5.2 // indirect
+
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/klauspost/compress v1.17.8 // indirect
