@@ -266,6 +266,7 @@ func (w *paramWriter) WriteByte(b byte) error {
 }
 
 func (w *paramWriter) Index(path ...uint32) (wrpc.IndexWriter, error) {
+	slog.DebugContext(w.ctx, "creating child index writer", "path", path)
 	child := newIndexWriter(w.ctx, w.nc, path)
 
 	w.mu.Lock()
@@ -301,6 +302,7 @@ func newIndexWriter(ctx context.Context, nc *nats.Conn, path []uint32) *indexWri
 }
 
 func (w *indexWriter) setTransmissionPrefix(prefix string) {
+	slog.DebugContext(w.ctx, "setting index writer transmission prefix", "prefix", prefix)
 	tx := indexPath(prefix, w.path...)
 
 	w.mu.Lock()
