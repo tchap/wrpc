@@ -5,6 +5,8 @@ package integration
 import (
 	"bytes"
 	"context"
+	"errors"
+	"io"
 	"log/slog"
 
 	wrpc "github.com/wrpc/wrpc/go"
@@ -23,17 +25,27 @@ func (AsyncHandler) WithStreams(ctx context.Context, complete bool) (wrpc.ReadCo
 	}
 }
 
-func (AsyncHandler) CountWords(ctx__ context.Context, words wrpc.ReceiveCompleter[[]string]) (uint64, error) {
-	var n int
+func (AsyncHandler) CountWords(ctx__ context.Context, words wrpc.ReceiveCompleter[[]string], breakWord string) (uint64, error) {
+	var n uint64
 	for {
 		next, err := words.Receive()
 		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return n, nil
+			}
 			return 0, err
 		}
 
-		n += len(next)
+		for _, word := range next {
+			if word == breakWord {
+				return n, nil
+			} else {
+				n += 1
+			}
+		}
+
 		if words.IsComplete() {
-			return uint64(n), nil
+			return n, nil
 		}
 	}
 }
