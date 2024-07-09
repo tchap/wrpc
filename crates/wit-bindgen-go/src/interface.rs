@@ -1961,7 +1961,7 @@ impl InterfaceGenerator<'_> {
                     if err = w.WriteByte(0); err != nil {{
                         return nil, fmt.Errorf("failed to write `future::pending` byte: %w", err)
                     }}
-                    return func(w {wrpc}.IndexWriter) (err error) {{
+                    return func(w {wrpc}.IndexWrite) (err error) {{
                         defer func() {{
                             body, ok := v.({io}.Closer)
                             if ok {{
@@ -2095,7 +2095,7 @@ impl InterfaceGenerator<'_> {
                 let wrpc = self.deps.wrpc();
                 uwrite!(
                     self.src,
-                    r#"func(v {wrpc}.ReadCompleter, w interface {{ {io}.ByteWriter; {io}.Writer }}) (write func({wrpc}.IndexWriter) error, err error) {{
+                    r#"func(v {wrpc}.ReadCompleter, w interface {{ {io}.ByteWriter; {io}.Writer }}) (write func({wrpc}.IndexWriteCloser) error, err error) {{
                 if v.IsComplete() {{
                     defer func() {{
                         body, ok := v.({io}.Closer)
@@ -2130,7 +2130,8 @@ impl InterfaceGenerator<'_> {
                     if err = w.WriteByte(0); err != nil {{
                         return nil, fmt.Errorf("failed to write `stream::pending` byte: %w", err)
                     }}
-                    return func(w {wrpc}.IndexWriter) (err error) {{
+                    return func(w {wrpc}.IndexWriteCloser) (err error) {{
+                        defer w.Close()
                         defer func() {{
                             body, ok := v.({io}.Closer)
                             if ok {{
@@ -2190,7 +2191,7 @@ impl InterfaceGenerator<'_> {
                 self.print_list(ty);
                 uwrite!(
                     self.src,
-                    r#"], w interface {{ {io}.ByteWriter; {io}.Writer }}) (write func({wrpc}.IndexWriter) error, err error) {{
+                    r#"], w interface {{ {io}.ByteWriter; {io}.Writer }}) (write func({wrpc}.IndexWriteCloser) error, err error) {{
             if v.IsComplete() {{
                 defer func() {{
                     body, ok := v.({io}.Closer)
@@ -2243,7 +2244,8 @@ impl InterfaceGenerator<'_> {
                 if err := w.WriteByte(0); err != nil {{
                     return nil, fmt.Errorf("failed to write `stream::pending` byte: %w", err)
                 }}
-                return func(w {wrpc}.IndexWriter) (err error) {{
+                return func(w {wrpc}.IndexWriteCloser) (err error) {{
+                    defer w.Close()
                     defer func() {{
                         body, ok := v.({io}.Closer)
                         if ok {{

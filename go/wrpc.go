@@ -12,7 +12,7 @@ type Invoker interface {
 }
 
 type Server interface {
-	Serve(instance string, name string, f func(context.Context, IndexWriter, IndexReadCloser) error, subs ...SubscribePath) (func() error, error)
+	Serve(instance string, name string, f func(context.Context, IndexWriteCloser, IndexReadCloser) error, subs ...SubscribePath) (func() error, error)
 }
 
 // Own is an owned resource handle
@@ -84,6 +84,14 @@ type IndexWriter interface {
 	io.ByteWriter
 
 	Index[IndexWriter]
+}
+
+type IndexWriteCloser interface {
+	io.Writer
+	io.ByteWriter
+
+	Index[IndexWriteCloser]
+	io.Closer
 }
 
 type IndexReadCloser interface {

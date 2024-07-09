@@ -83,8 +83,13 @@ func subscribe(conn *nats.Conn, prefix string, f func(context.Context, []byte), 
 	})
 }
 
-func publishAll(nc *nats.Conn, subject string, p []byte) (int, error) {
+func publishAll(nc *nats.Conn, subject string, p []byte, sendEmpty bool) (int, error) {
 	if len(p) == 0 {
+		if sendEmpty {
+			if err := nc.Publish(subject, nil); err != nil {
+				return 0, fmt.Errorf("failed to send empty payload chunk: %w", err)
+			}
+		}
 		return 0, nil
 	}
 
@@ -191,17 +196,17 @@ func (w *paramWriter) handshakeFinished(tx string) {
 	}
 }
 
-func (w *paramWriter) publish(p []byte) (int, error) {
+func (w *paramWriter) publish(p []byte, sendEmpty bool) (int, error) {
 	// Just publish in case the writer is already initialized.
 	if w.isInitialized() {
-		return publishAll(w.nc, w.tx, p)
+		return publishAll(w.nc, w.tx, p, sendEmpty)
 	}
 
 	// Try to mark handshake as pending, otherwise wait for it to be finished.
 	if !w.handshakeStatus.CompareAndSwap(handshakeUnstarted, handshakePending) {
 		select {
 		case <-w.handshakeDoneCh:
-			return publishAll(w.nc, w.tx, p)
+			return publishAll(w.nc, w.tx, p, sendEmpty)
 
 		case <-w.ctx.Done():
 			return 0, w.ctx.Err()
@@ -250,18 +255,23 @@ func (w *paramWriter) publish(p []byte) (int, error) {
 	w.handshakeFinished(paramSubject(m.Reply))
 
 	// Publish what remains.
-	if _, err := publishAll(w.nc, w.tx, p); err != nil {
+	if _, err := publishAll(w.nc, w.tx, p, sendEmpty); err != nil {
 		return 0, err
 	}
 	return pn, nil
 }
 
 func (w *paramWriter) Write(p []byte) (int, error) {
-	return w.publish(p)
+	return w.publish(p, false)
 }
 
 func (w *paramWriter) WriteByte(b byte) error {
-	_, err := w.publish([]byte{b})
+	_, err := w.publish([]byte{b}, false)
+	return err
+}
+
+func (w *paramWriter) Close() error {
+	_, err := w.publish(nil, true)
 	return err
 }
 
@@ -321,10 +331,10 @@ func (w *indexWriter) setTransmissionPrefix(prefix string) {
 	}
 }
 
-func (w *indexWriter) publish(p []byte) (int, error) {
+func (w *indexWriter) publish(p []byte, sendEmpty bool) (int, error) {
 	select {
 	case <-w.txCh:
-		return publishAll(w.nc, w.tx, p)
+		return publishAll(w.nc, w.tx, p, sendEmpty)
 
 	case <-w.ctx.Done():
 		return 0, w.ctx.Err()
@@ -332,11 +342,16 @@ func (w *indexWriter) publish(p []byte) (int, error) {
 }
 
 func (w *indexWriter) Write(p []byte) (int, error) {
-	return w.publish(p)
+	return w.publish(p, false)
 }
 
 func (w *indexWriter) WriteByte(b byte) error {
-	_, err := w.publish([]byte{b})
+	_, err := w.publish([]byte{b}, false)
+	return err
+}
+
+func (w *indexWriter) Close() error {
+	_, err := w.publish(nil, true)
 	return err
 }
 
