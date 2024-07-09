@@ -256,7 +256,7 @@ func (w *paramWriter) publish(p []byte, sendEmpty bool) (int, error) {
 	w.handshakeFinished(paramSubject(m.Reply))
 
 	// Publish what remains.
-	if _, err := publishAll(w.nc, w.tx, p, sendEmpty); err != nil {
+	if _, err := publishAll(w.nc, w.tx, p, false); err != nil {
 		return 0, err
 	}
 	return pn, nil
