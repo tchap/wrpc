@@ -433,7 +433,9 @@ func (r *subReader) Read(p []byte) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-
+	if len(msg.Data) == 0 {
+		return 0, io.EOF
+	}
 	n := copy(p, msg.Data)
 	r.buf = msg.Data[n:]
 	return n, nil
@@ -550,6 +552,9 @@ func (r *indexedStreamReader) Read(p []byte) (int, error) {
 	msg, err := r.sub.NextMsgWithContext(r.ctx)
 	if err != nil {
 		return 0, err
+	}
+	if len(msg.Data) == 0 {
+		return 0, io.EOF
 	}
 	n := copy(p, msg.Data)
 	r.buf = msg.Data[n:]

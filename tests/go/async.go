@@ -29,6 +29,7 @@ func (AsyncHandler) CountStrings(ctx__ context.Context, words wrpc.ReceiveComple
 	var n int
 	for {
 		next, err := words.Receive()
+		slog.Debug("NEXT", "next", next, "err", err)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				return uint64(n), nil
