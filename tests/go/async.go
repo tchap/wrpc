@@ -25,27 +25,17 @@ func (AsyncHandler) WithStreams(ctx context.Context, complete bool) (wrpc.ReadCo
 	}
 }
 
-func (AsyncHandler) CountWords(ctx__ context.Context, words wrpc.ReceiveCompleter[[]string], breakWord string) (uint64, error) {
-	var n uint64
+func (AsyncHandler) CountStrings(ctx__ context.Context, words wrpc.ReceiveCompleter[[]string]) (uint64, error) {
+	var n int
 	for {
 		next, err := words.Receive()
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				return n, nil
+				return uint64(n), nil
 			}
 			return 0, err
 		}
 
-		for _, word := range next {
-			if word == breakWord {
-				return n, nil
-			} else {
-				n += 1
-			}
-		}
-
-		if words.IsComplete() {
-			return n, nil
-		}
+		n += len(next)
 	}
 }

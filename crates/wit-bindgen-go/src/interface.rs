@@ -1625,7 +1625,7 @@ impl InterfaceGenerator<'_> {
         self.print_list(ty);
         uwrite!(
             self.src,
-            r#", w interface {{ {io}.ByteWriter; {io}.Writer }}) (write func({wrpc}.IndexWriter) error, err error) {{
+            r#", w interface {{ {io}.ByteWriter; {io}.Writer }}) (write func({wrpc}.IndexWriteCloser) error, err error) {{
         n := len(v)
         if n > {math}.MaxUint32 {{
             return nil, {fmt}.Errorf("list length of %d overflows a 32-bit integer", n)
@@ -1640,7 +1640,7 @@ impl InterfaceGenerator<'_> {
             return nil, {fmt}.Errorf("failed to write list length of %d: %w", n, err)
         }}
         {slog}.Debug("writing list elements")
-        writes := make(map[uint32]func({wrpc}.IndexWriter) error, n)
+        writes := make(map[uint32]func({wrpc}.IndexWriteCloser) error, n)
         for i, e := range v {{
             write, err := "#
         );
@@ -1656,7 +1656,7 @@ impl InterfaceGenerator<'_> {
             }}
         }}
         if len(writes) > 0 {{
-            return func(w {wrpc}.IndexWriter) error {{
+            return func(w {wrpc}.IndexWriteCloser) error {{
                 var wg {sync}.WaitGroup
                 var wgErr {atomic}.Value
                 for index, write := range writes {{
@@ -1696,7 +1696,7 @@ impl InterfaceGenerator<'_> {
         self.print_option(ty, true);
         uwrite!(
             self.src,
-            r#", w interface {{ {io}.ByteWriter; {io}.Writer }}) (func({wrpc}.IndexWriter) error, error) {{
+            r#", w interface {{ {io}.ByteWriter; {io}.Writer }}) (func({wrpc}.IndexWriteCloser) error, error) {{
         if v == nil {{
             {slog}.Debug("writing `option::none` status byte")
             if err := w.WriteByte(0); err != nil {{
@@ -1736,7 +1736,7 @@ impl InterfaceGenerator<'_> {
         self.print_result(ty);
         uwriteln!(
             self.src,
-            r#", w interface {{ {io}.ByteWriter; {io}.Writer }}) (func({wrpc}.IndexWriter) error, error) {{
+            r#", w interface {{ {io}.ByteWriter; {io}.Writer }}) (func({wrpc}.IndexWriteCloser) error, error) {{
         switch {{
             case v.Ok == nil && v.Err == nil:
                 return nil, {errors}.New("both result variants cannot be nil")
@@ -1811,7 +1811,7 @@ impl InterfaceGenerator<'_> {
 
     fn print_write_tuple(&mut self, ty: &Tuple, name: &str, writer: &str) {
         match ty.types.as_slice() {
-            [] => self.push_str("(func({wrpc}.IndexWriter) error)(nil), error(nil)"),
+            [] => self.push_str("(func({wrpc}.IndexWriteCloser) error)(nil), error(nil)"),
             [ty] => {
                 let fmt = self.deps.fmt();
                 let io = self.deps.io();
@@ -1822,7 +1822,7 @@ impl InterfaceGenerator<'_> {
                 self.print_opt_ty(ty, true);
                 uwrite!(
                     self.src,
-                    r#", w interface {{ {io}.ByteWriter; {io}.Writer }}) (func({wrpc}.IndexWriter) error, error) {{
+                    r#", w interface {{ {io}.ByteWriter; {io}.Writer }}) (func({wrpc}.IndexWriteCloser) error, error) {{
         {slog}.Debug("writing tuple element 0")
         write, err := "#
                 );
@@ -1834,7 +1834,7 @@ impl InterfaceGenerator<'_> {
             return nil, {fmt}.Errorf("failed to write tuple element 0: %w", err)
         }}
         if write != nil {{
-            return func(w {wrpc}.IndexWriter) error {{
+            return func(w {wrpc}.IndexWriteCloser) error {{
                     w, err := w.Index(0)
                     if err != nil {{
                         return {fmt}.Errorf("failed to index writer: %w", err)
@@ -1857,8 +1857,8 @@ impl InterfaceGenerator<'_> {
                 self.print_tuple(ty, true);
                 uwriteln!(
                     self.src,
-                    r", w interface {{ {io}.ByteWriter; {io}.Writer }}) (func({wrpc}.IndexWriter) error, error) {{
-        writes := make(map[uint32]func({wrpc}.IndexWriter) error, {})",
+                    r", w interface {{ {io}.ByteWriter; {io}.Writer }}) (func({wrpc}.IndexWriteCloser) error, error) {{
+        writes := make(map[uint32]func({wrpc}.IndexWriteCloser) error, {})",
                     ty.types.len(),
                 );
                 for (i, ty) in ty.types.iter().enumerate() {
@@ -1883,7 +1883,7 @@ impl InterfaceGenerator<'_> {
                 uwrite!(
                     self.src,
                     r#"if len(writes) > 0 {{
-            return func(w {wrpc}.IndexWriter) error {{
+            return func(w {wrpc}.IndexWriteCloser) error {{
                 var wg {sync}.WaitGroup
                 var wgErr {atomic}.Value
                 for index, write := range writes {{
@@ -1926,7 +1926,7 @@ impl InterfaceGenerator<'_> {
                 let wrpc = self.deps.wrpc();
                 uwrite!(
                     self.src,
-                    r#"func(v {wrpc}.ReadCompleter, w interface {{ {io}.ByteWriter; {io}.Writer }}) (write func({wrpc}.IndexWriter) error, err error) {{
+                    r#"func(v {wrpc}.ReadCompleter, w interface {{ {io}.ByteWriter; {io}.Writer }}) (write func({wrpc}.IndexWriteCloser) error, err error) {{
                 if v.IsComplete() {{
                     defer func() {{
                         body, ok := v.({io}.Closer)
@@ -2004,7 +2004,7 @@ impl InterfaceGenerator<'_> {
                 self.print_opt_ty(ty, true);
                 uwrite!(
                     self.src,
-                    r#"], w interface {{ {io}.ByteWriter; {io}.Writer }}) (write func({wrpc}.IndexWriter) error, err error) {{
+                    r#"], w interface {{ {io}.ByteWriter; {io}.Writer }}) (write func({wrpc}.IndexWriteCloser) error, err error) {{
             if v.IsComplete() {{
                 defer func() {{
                     body, ok := v.({io}.Closer)
@@ -2043,7 +2043,7 @@ impl InterfaceGenerator<'_> {
                 if err := w.WriteByte(0); err != nil {{
                     return nil, fmt.Errorf("failed to write `future::pending` byte: %w", err)
                 }}
-                return func(w {wrpc}.IndexWriter) (err error) {{
+                return func(w {wrpc}.IndexWriteCloser) (err error) {{
                     defer func() {{
                         body, ok := v.({io}.Closer)
                         if ok {{
@@ -2334,67 +2334,67 @@ impl InterfaceGenerator<'_> {
             Type::Id(t) => self.print_write_tyid(*t, name, writer),
             Type::Bool => {
                 let wrpc = self.deps.wrpc();
-                uwrite!(self.src, "(func({wrpc}.IndexWriter) error)(nil), ");
+                uwrite!(self.src, "(func({wrpc}.IndexWriteCloser) error)(nil), ");
                 self.print_write_bool(name, writer);
             }
             Type::U8 => {
                 let wrpc = self.deps.wrpc();
-                uwrite!(self.src, "(func({wrpc}.IndexWriter) error)(nil), ");
+                uwrite!(self.src, "(func({wrpc}.IndexWriteCloser) error)(nil), ");
                 self.print_write_u8(name, writer);
             }
             Type::U16 => {
                 let wrpc = self.deps.wrpc();
-                uwrite!(self.src, "(func({wrpc}.IndexWriter) error)(nil), ");
+                uwrite!(self.src, "(func({wrpc}.IndexWriteCloser) error)(nil), ");
                 self.print_write_u16(name, writer);
             }
             Type::U32 => {
                 let wrpc = self.deps.wrpc();
-                uwrite!(self.src, "(func({wrpc}.IndexWriter) error)(nil), ");
+                uwrite!(self.src, "(func({wrpc}.IndexWriteCloser) error)(nil), ");
                 self.print_write_u32(name, writer);
             }
             Type::U64 => {
                 let wrpc = self.deps.wrpc();
-                uwrite!(self.src, "(func({wrpc}.IndexWriter) error)(nil), ");
+                uwrite!(self.src, "(func({wrpc}.IndexWriteCloser) error)(nil), ");
                 self.print_write_u64(name, writer);
             }
             Type::S8 => {
                 let wrpc = self.deps.wrpc();
-                uwrite!(self.src, "(func({wrpc}.IndexWriter) error)(nil), ");
+                uwrite!(self.src, "(func({wrpc}.IndexWriteCloser) error)(nil), ");
                 self.print_write_s8(name, writer);
             }
             Type::S16 => {
                 let wrpc = self.deps.wrpc();
-                uwrite!(self.src, "(func({wrpc}.IndexWriter) error)(nil), ");
+                uwrite!(self.src, "(func({wrpc}.IndexWriteCloser) error)(nil), ");
                 self.print_write_s16(name, writer);
             }
             Type::S32 => {
                 let wrpc = self.deps.wrpc();
-                uwrite!(self.src, "(func({wrpc}.IndexWriter) error)(nil), ");
+                uwrite!(self.src, "(func({wrpc}.IndexWriteCloser) error)(nil), ");
                 self.print_write_s32(name, writer);
             }
             Type::S64 => {
                 let wrpc = self.deps.wrpc();
-                uwrite!(self.src, "(func({wrpc}.IndexWriter) error)(nil), ");
+                uwrite!(self.src, "(func({wrpc}.IndexWriteCloser) error)(nil), ");
                 self.print_write_s64(name, writer);
             }
             Type::F32 => {
                 let wrpc = self.deps.wrpc();
-                uwrite!(self.src, "(func({wrpc}.IndexWriter) error)(nil), ");
+                uwrite!(self.src, "(func({wrpc}.IndexWriteCloser) error)(nil), ");
                 self.print_write_f32(name, writer);
             }
             Type::F64 => {
                 let wrpc = self.deps.wrpc();
-                uwrite!(self.src, "(func({wrpc}.IndexWriter) error)(nil), ");
+                uwrite!(self.src, "(func({wrpc}.IndexWriteCloser) error)(nil), ");
                 self.print_write_f64(name, writer);
             }
             Type::Char => {
                 let wrpc = self.deps.wrpc();
-                uwrite!(self.src, "(func({wrpc}.IndexWriter) error)(nil), ");
+                uwrite!(self.src, "(func({wrpc}.IndexWriteCloser) error)(nil), ");
                 self.print_write_char(name, writer);
             }
             Type::String => {
                 let wrpc = self.deps.wrpc();
-                uwrite!(self.src, "(func({wrpc}.IndexWriter) error)(nil), ");
+                uwrite!(self.src, "(func({wrpc}.IndexWriteCloser) error)(nil), ");
                 self.print_write_string(name, writer);
             }
         }
@@ -2405,12 +2405,12 @@ impl InterfaceGenerator<'_> {
         match &ty.kind {
             TypeDefKind::Handle(Handle::Own(_id)) => {
                 let wrpc = self.deps.wrpc();
-                uwrite!(self.src, "(func({wrpc}.IndexWriter) error)(nil), ");
+                uwrite!(self.src, "(func({wrpc}.IndexWriteCloser) error)(nil), ");
                 self.print_write_string(&format!("string({name})"), writer);
             }
             TypeDefKind::Handle(Handle::Borrow(_id)) => {
                 let wrpc = self.deps.wrpc();
-                uwrite!(self.src, "(func({wrpc}.IndexWriter) error)(nil), ");
+                uwrite!(self.src, "(func({wrpc}.IndexWriteCloser) error)(nil), ");
                 self.print_write_string(&format!("string({name})"), writer);
             }
             TypeDefKind::Tuple(ty) => self.print_write_tuple(ty, name, writer),
@@ -2683,7 +2683,7 @@ impl InterfaceGenerator<'_> {
             let wrpc = self.deps.wrpc();
             uwriteln!(
                 self.src,
-                r#"stop{i}, err := s.Serve("{instance}", "{name}", func(ctx {context}.Context, w {wrpc}.IndexWriter, r {wrpc}.IndexReadCloser) error {{"#,
+                r#"stop{i}, err := s.Serve("{instance}", "{name}", func(ctx {context}.Context, w {wrpc}.IndexWriteCloser, r {wrpc}.IndexReadCloser) error {{"#,
             );
             for (i, (_, ty)) in func.params.iter().enumerate() {
                 uwrite!(
@@ -2751,7 +2751,7 @@ impl InterfaceGenerator<'_> {
                     let name = &func.item_name();
                     uwriteln!(
                         self.src,
-                        r#"stop{i}, err := s.Serve(rx, "{name}", func(ctx {context}.Context, w {wrpc}.IndexWriter, r {wrpc}.IndexReadCloser) error {{"#,
+                        r#"stop{i}, err := s.Serve(rx, "{name}", func(ctx {context}.Context, w {wrpc}.IndexWriteCloser, r {wrpc}.IndexReadCloser) error {{"#,
                     );
                     for (i, (_, ty)) in func.params.iter().enumerate().skip(1) {
                         uwrite!(
@@ -2794,7 +2794,7 @@ impl InterfaceGenerator<'_> {
                         self.src,
                         r"
                     var buf {bytes}.Buffer
-                    writes := make(map[uint32]func({wrpc}.IndexWriter) error, {})",
+                    writes := make(map[uint32]func({wrpc}.IndexWriteCloser) error, {})",
                         func.results.len()
                     );
                     for (i, ty) in func.results.iter_types().enumerate() {
@@ -2883,7 +2883,7 @@ impl InterfaceGenerator<'_> {
                 }
                 uwriteln!(
                     self.src,
-                    r#"stopDrop, err := s.Serve(rx, "drop", func(_ {context}.Context, w {wrpc}.IndexWriter, _ {wrpc}.IndexReadCloser) error {{ 
+                    r#"stopDrop, err := s.Serve(rx, "drop", func(_ {context}.Context, w {wrpc}.IndexWriteCloser, _ {wrpc}.IndexReadCloser) error {{ 
                         defer cancel(nil)
                         _, err := w.Write(nil)
                         if err != nil {{
@@ -2914,7 +2914,7 @@ impl InterfaceGenerator<'_> {
                 self.src,
                 r"
             var buf {bytes}.Buffer
-            writes := make(map[uint32]func({wrpc}.IndexWriter) error, {})",
+            writes := make(map[uint32]func({wrpc}.IndexWriteCloser) error, {})",
                 func.results.len()
             );
             for (i, ty) in func.results.iter_types().enumerate() {
@@ -3045,7 +3045,7 @@ impl InterfaceGenerator<'_> {
             self.src.push_str("\", ");
             uwriteln!(
                 self.src,
-                "func(w__ {wrpc}.IndexWriter, r__ {wrpc}.IndexReadCloser) error {{"
+                "func(w__ {wrpc}.IndexWriteCloser, r__ {wrpc}.IndexReadCloser) error {{"
             );
             self.push_str("close__ = r__.Close\n");
             if !func.params.is_empty() {
@@ -3053,7 +3053,7 @@ impl InterfaceGenerator<'_> {
                 uwriteln!(
                     self.src,
                     r"var buf__ {bytes}.Buffer
-        writes__ := make(map[uint32]func({wrpc}.IndexWriter) error, {})",
+        writes__ := make(map[uint32]func({wrpc}.IndexWriteCloser) error, {})",
                     func.params.len(),
                 );
                 for (i, (name, ty)) in func.params.iter().enumerate() {
@@ -3582,8 +3582,8 @@ impl<'a> wit_bindgen_core::InterfaceGenerator<'a> for InterfaceGenerator<'a> {
                 self.src,
                 r#"func (v *{name}) String() string {{ return "{name}" }}
 
-func (v *{name}) WriteToIndex(w {wrpc}.ByteWriter) (func({wrpc}.IndexWriter) error, error) {{
-    writes := make(map[uint32]func({wrpc}.IndexWriter) error, {})"#,
+func (v *{name}) WriteToIndex(w {wrpc}.ByteWriter) (func({wrpc}.IndexWriteCloser) error, error) {{
+    writes := make(map[uint32]func({wrpc}.IndexWriteCloser) error, {})"#,
                 fields.len(),
             );
             for (i, Field { name, ty, .. }) in fields.iter().enumerate() {
@@ -3614,7 +3614,7 @@ func (v *{name}) WriteToIndex(w {wrpc}.ByteWriter) (func({wrpc}.IndexWriter) err
                 self.src,
                 r#"
     if len(writes) > 0 {{
-        return func(w {wrpc}.IndexWriter) error {{
+        return func(w {wrpc}.IndexWriteCloser) error {{
             var wg {sync}.WaitGroup
             var wgErr {atomic}.Value
             for index, write := range writes {{
@@ -3707,7 +3707,7 @@ func (v *{name}) WriteToIndex(w {wrpc}.ByteWriter) (func({wrpc}.IndexWriter) err
 
             uwriteln!(
                 self.src,
-                r#"func (v *{name}) WriteToIndex(w {wrpc}.ByteWriter) (func({wrpc}.IndexWriter) error, error) {{
+                r#"func (v *{name}) WriteToIndex(w {wrpc}.ByteWriter) (func({wrpc}.IndexWriteCloser) error, error) {{
                     var p [{buf_len}]byte
 "#
             );
@@ -3894,7 +3894,7 @@ func (v *{name}) WriteToIndex(w {wrpc}.ByteWriter) (func({wrpc}.IndexWriter) err
             let wrpc = self.deps.wrpc();
             uwriteln!(
                 self.src,
-                "func (v *{name}) WriteToIndex(w {wrpc}.ByteWriter) (func({wrpc}.IndexWriter) error, error) {{",
+                "func (v *{name}) WriteToIndex(w {wrpc}.ByteWriter) (func({wrpc}.IndexWriteCloser) error, error) {{",
             );
             self.push_str("if err := ");
             self.print_write_discriminant(variant.tag(), "v.discriminant", "w");
@@ -3933,7 +3933,7 @@ func (v *{name}) WriteToIndex(w {wrpc}.ByteWriter) (func({wrpc}.IndexWriter) err
                         self.src,
                         r#"
                     if write != nil {{
-                        return func(w {wrpc}.IndexWriter) error {{
+                        return func(w {wrpc}.IndexWriteCloser) error {{
                             w, err := w.Index({i})
                             if err != nil {{
                                 return {fmt}.Errorf("failed to index writer: %w", err)
@@ -4027,7 +4027,7 @@ func (v *{name}) WriteToIndex(w {wrpc}.ByteWriter) (func({wrpc}.IndexWriter) err
             let wrpc = self.deps.wrpc();
             uwriteln!(
                 self.src,
-                "func (v {name}) WriteToIndex(w {wrpc}.ByteWriter) (func({wrpc}.IndexWriter) error, error) {{",
+                "func (v {name}) WriteToIndex(w {wrpc}.ByteWriter) (func({wrpc}.IndexWriteCloser) error, error) {{",
             );
             self.push_str("if err := ");
             self.print_write_discriminant(enum_.tag(), "v", "w");

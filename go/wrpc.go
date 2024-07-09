@@ -8,7 +8,7 @@ import (
 )
 
 type Invoker interface {
-	Invoke(ctx context.Context, instance string, name string, f func(IndexWriter, IndexReadCloser) error, subs ...SubscribePath) error
+	Invoke(ctx context.Context, instance string, name string, f func(IndexWriteCloser, IndexReadCloser) error, subs ...SubscribePath) error
 }
 
 type Server interface {
@@ -22,7 +22,7 @@ func (v Own[T]) Drop(ctx context.Context, c Invoker) error {
 	if v == "" {
 		return errors.New("cannot drop a resource without an ID")
 	}
-	return c.Invoke(ctx, string(v), "drop", func(w IndexWriter, r IndexReadCloser) error {
+	return c.Invoke(ctx, string(v), "drop", func(w IndexWriteCloser, r IndexReadCloser) error {
 		_, err := w.Write(nil)
 		if err != nil {
 			return fmt.Errorf("failed to write empty `drop` parameters")
@@ -77,13 +77,6 @@ type IndexReader interface {
 	io.ByteReader
 
 	Index[IndexReader]
-}
-
-type IndexWriter interface {
-	io.Writer
-	io.ByteWriter
-
-	Index[IndexWriter]
 }
 
 type IndexWriteCloser interface {

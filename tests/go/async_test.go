@@ -127,13 +127,27 @@ func TestAsync(t *testing.T) {
 	}
 
 	t.Run("CountWords", func(t *testing.T) {
-		check := assert.New(t)
+		t.Run("Ready", func(t *testing.T) {
+			check := assert.New(t)
 
-		slog.DebugContext(ctx, "calling `wrpc-test:integration/async.count-words`")
-		r, shutdown, err := async.CountWords(ctx, client, wrpc.NewCompleteReceiver([]string{"1", "2", "3", "4"}), "4")
-		check.NoError(err)
-		check.NoError(shutdown())
-		check.Equal(uint64(3), r)
+			slog.DebugContext(ctx, "calling `wrpc-test:integration/async.count-words`")
+			r, shutdown, err := async.CountStrings(ctx, client,
+				wrpc.NewCompleteReceiver([]string{"1", "2", "3", "4"}))
+			check.NoError(err)
+			check.NoError(shutdown())
+			check.Equal(uint64(4), r)
+		})
+
+		t.Run("Pending", func(t *testing.T) {
+			check := assert.New(t)
+
+			slog.DebugContext(ctx, "calling `wrpc-test:integration/async.count-words`")
+			r, shutdown, err := async.CountStrings(ctx, client,
+				wrpc.NewPendingReceiver(wrpc.NewCompleteReceiver([]string{"1", "2", "3", "4"})))
+			check.NoError(err)
+			check.NoError(shutdown())
+			check.Equal(uint64(4), r)
+		})
 	})
 
 	if err = stop(); err != nil {

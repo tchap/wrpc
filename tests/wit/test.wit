@@ -37,7 +37,7 @@ interface sync {
 
 interface async {
     with-streams: func(complete: bool) -> (bytes: stream<u8>, lists: stream<list<string>>);
-    count-words: func(words: stream<string>, break-word: string) -> u64;
+    count-strings: func(words: stream<string>) -> u64;
 }
 
 interface resources {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -271,11 +272,12 @@ func (w *paramWriter) WriteByte(b byte) error {
 }
 
 func (w *paramWriter) Close() error {
+	slog.DebugContext(w.ctx, "sending the closing empty message (params)")
 	_, err := w.publish(nil, true)
 	return err
 }
 
-func (w *paramWriter) Index(path ...uint32) (wrpc.IndexWriter, error) {
+func (w *paramWriter) Index(path ...uint32) (wrpc.IndexWriteCloser, error) {
 	slog.DebugContext(w.ctx, "creating child index writer", "path", path)
 	child := newIndexWriter(w.ctx, w.nc, path)
 
@@ -351,11 +353,12 @@ func (w *indexWriter) WriteByte(b byte) error {
 }
 
 func (w *indexWriter) Close() error {
+	slog.DebugContext(w.ctx, "sending the closing empty message (index)")
 	_, err := w.publish(nil, true)
 	return err
 }
 
-func (w *indexWriter) Index(path ...uint32) (wrpc.IndexWriter, error) {
+func (w *indexWriter) Index(path ...uint32) (wrpc.IndexWriteCloser, error) {
 	child := newIndexWriter(w.ctx, w.nc, path)
 
 	w.mu.Lock()
@@ -400,7 +403,14 @@ func (w *resultWriter) WriteByte(b byte) error {
 	return nil
 }
 
-func (w *resultWriter) Index(path ...uint32) (wrpc.IndexWriter, error) {
+func (w *resultWriter) Close() error {
+	if err := w.nc.Publish(w.tx, nil); err != nil {
+		return fmt.Errorf("failed to send closing empty message: %w", err)
+	}
+	return nil
+}
+
+func (w *resultWriter) Index(path ...uint32) (wrpc.IndexWriteCloser, error) {
 	return &resultWriter{nc: w.nc, tx: indexPath(w.tx, path...)}, nil
 }
 
@@ -423,6 +433,7 @@ func (r *subReader) Read(p []byte) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+
 	n := copy(p, msg.Data)
 	r.buf = msg.Data[n:]
 	return n, nil
@@ -442,7 +453,7 @@ func (r *subReader) ReadByte() (byte, error) {
 			return 0, err
 		}
 		if len(msg.Data) == 0 {
-			continue
+			return 0, io.EOF
 		}
 		r.buf = msg.Data[1:]
 		return msg.Data[0], nil
@@ -559,7 +570,7 @@ func (r *indexedStreamReader) ReadByte() (byte, error) {
 			return 0, err
 		}
 		if len(msg.Data) == 0 {
-			continue
+			return 0, io.EOF
 		}
 		r.buf = msg.Data[1:]
 		return msg.Data[0], nil
@@ -580,7 +591,7 @@ func (r *indexedStreamReader) Index(path ...uint32) (wrpc.IndexReader, error) {
 	}, nil
 }
 
-func (c *Client) Invoke(ctx context.Context, instance string, name string, f func(wrpc.IndexWriter, wrpc.IndexReadCloser) error, subs ...wrpc.SubscribePath) (err error) {
+func (c *Client) Invoke(ctx context.Context, instance string, name string, f func(wrpc.IndexWriteCloser, wrpc.IndexReadCloser) error, subs ...wrpc.SubscribePath) (err error) {
 	ctx, cancel := context.WithCancel(ctx)
 
 	rx := nats.NewInbox()
@@ -645,7 +656,7 @@ func (c *Client) Invoke(ctx context.Context, instance string, name string, f fun
 	return err
 }
 
-func (c *Client) Serve(instance string, name string, f func(context.Context, wrpc.IndexWriter, wrpc.IndexReadCloser) error, subs ...wrpc.SubscribePath) (stop func() error, err error) {
+func (c *Client) Serve(instance string, name string, f func(context.Context, wrpc.IndexWriteCloser, wrpc.IndexReadCloser) error, subs ...wrpc.SubscribePath) (stop func() error, err error) {
 	sub, err := c.conn.Subscribe(invocationSubject(c.prefix, instance, name), func(m *nats.Msg) {
 		ctx := context.Background()
 		ctx, cancel := context.WithCancel(ctx)
